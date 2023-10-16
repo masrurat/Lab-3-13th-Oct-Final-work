@@ -17,32 +17,230 @@ Load packages and data:
 boston_cocktails <- readr::read_csv('data/boston_cocktails.csv')
 ```
 
+```{r}
+library(magrittr)   # the pipe
+library(tidyverse)  # for data wrangling + visualization
+library(tidymodels) # for modeling
+library(gt)         # for pretty tables
+```
+
 ## Exercises
 
 ### Exercise 1
 
-The median measure amount across across all cocktails is \_\_\_.
+The median measure amount across all cocktails is 1.
+
+```{r}
+# Use skimr::skim to get an overview of the dataset
+skimr::skim(boston_cocktails)
+
+# Use DataExplorer::introduce to explore the dataset
+DataExplorer::introduce(boston_cocktails)
+
+```
+
+```{r}
+# Calculate the median measure number
+median_measure <- median(boston_cocktails$measure_number)
+cat("The median measure number across cocktail recipes is:", median_measure, "\n")
+```
 
 ### Exercise 2
 
-The **Leap Frog Highball** contains \_\_\_ of gin
+The **Leap Frog Highball** contains 2 of gin
+
+```{r}
+library(tidyr)      # Load the tidyr package for data reshaping
+library(janitor)    # Load the janitor package for cleaning column names
+
+# Select the columns: name, category, ingredient, and measure_number
+selected_data <- boston_cocktails %>%
+  select(name, category, ingredient, measure_number)
+
+# Pivot the table to create a column for each ingredient and fill missing values with zero
+pivoted_data <- selected_data %>%
+  pivot_wider(names_from = ingredient, values_from = measure_number, values_fill = 0)
+```
+
+```{r}
+# Clean the column names
+cleaned_data <- pivoted_data %>%
+  janitor::clean_names()
+
+```
+
+```{r}
+# Drop rows with NA values and save the new dataset
+cleaned_data <- cleaned_data %>%
+  drop_na()  # This will remove rows with NA values
+
+# You can save this cleaned dataset in a new variable
+cleaned_dataset <- cleaned_data
+
+```
+
+```{r}
+# Filter the dataset to get information about Leap Frog Highball
+leap_frog_highball <- cleaned_dataset %>%
+  filter(name == "Leap Frog Highball")
+
+# Extract the amount of gin
+amount_of_gin <- leap_frog_highball$gin
+cat("The amount of gin in the cocktail called Leap Frog Highball is:", amount_of_gin, "\n")
+```
 
 ### Exercise 3
 
-\_\_\_ predictor variables are prepped by the recipe.
+0 predictor variables are prepped by the recipe.
+
+```{r}
+# Load the required library
+library(recipes)
+
+# Create a recipe object without a target, but with 'id' roles for "name" and "category"
+recipe_obj <- recipe(~ ., data = boston_cocktails) %>%
+  add_role("name", "category", new_role = "id") %>%
+  step_select(where(is.numeric)) %>%  # Select only numeric columns
+  step_normalize(all_predictors()) %>%
+  step_pca(all_predictors())
+
+# Prep the data using the recipe
+prepped_data <- prep(recipe_obj)
+
+# How many predictor variables are prepped by the recipe?
+num_predictor_vars <- length(prepped_data$predictors)
+num_predictor_vars
+```
 
 ### Exercise 4
 
-On average the most used ingredient in the Boston Cocktails dataset is \_\_\_\_.
+On average the most used ingredient in the Boston Cocktails dataset is 1.
+
+```{r}
+# Load the required library
+library(recipes)
+
+# Create a recipe object without a target, but with 'id' roles for "name" and "category"
+recipe_obj <- recipe(~ ., data = boston_cocktails) %>%
+  add_role("name", "category", new_role = "id") %>%
+  step_select(where(is.numeric)) %>%  # Select only numeric columns
+  step_normalize(all_predictors()) %>%
+  step_pca(all_predictors())
+
+# Prep the data using the recipe
+prepped_data <- prep(recipe_obj)
+
+# Calculate the frequency of each ingredient
+ingredient_frequencies <- table(unlist(boston_cocktails[, -c(1, 2)]))
+
+# Find the ingredient with the highest frequency
+most_used_ingredient <- names(ingredient_frequencies[which.max(ingredient_frequencies)])
+most_used_ingredient
+```
 
 ### Exercise 5
 
-Describe describe the drinks represented by PC1?
+Describe the drinks represented by PC1?
+
+```{r}
+# Load the required libraries
+library(recipes)
+library(ggplot2)
+library(tidyr)
+
+# Apply recipes::tidy to obtain PCA result with the second argument as 2
+pca_result <- recipes::tidy(prepped_data, 2)
+
+# Filter for terms corresponding to components PC1 to PC5
+components_to_plot <- c("PC1", "PC2", "PC3", "PC4", "PC5")
+pca_result_filtered <- pca_result %>%
+  filter(terms %in% components_to_plot)
+
+# Mutate the terms column to factor and order them
+pca_result_filtered <- pca_result_filtered %>%
+  mutate(terms = forcats::fct_inorder(terms))
+
+# Ensure that all levels of "terms" are represented by completing the data
+pca_result_filtered <- pca_result_filtered %>%
+  complete(terms = components_to_plot)
+
+# Convert the 'value' column to numeric
+pca_result_filtered$value <- as.numeric(pca_result_filtered$value)
+
+# Create a ggplot for visualization
+ggplot(pca_result_filtered, aes(value, terms, fill = terms)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~terms, nrow = 1) +
+  labs(y = NULL) +
+  theme(
+    axis.text = element_text(size = 7),
+    axis.title = element_text(size = 14, face = "bold")
+  )
+```
 
 ### Exercise 6
 
 The characteristic alcoholic beverage of each of the first 4 principle components is \_\_\_.
 
+```{r}
+boston_cocktails$measure_number <- as.numeric(boston_cocktails$measure_number)
+```
+
+```{r}
+# Load the required libraries
+library(dplyr)
+library(gt)
+
+# Use the PCA data and select components PC1 to PC4
+pca_result_filtered <- pca_result %>%
+  filter(terms %in% c("PC1", "PC2", "PC3", "PC4"))
+
+# Slice the top 8 ingredients by component, ordered by their absolute value
+top_ingredients <- pca_result_filtered %>%
+  arrange(terms, desc(abs(value))) %>%
+  group_by(terms) %>%
+  slice_max(order_by = abs(value), n = 8)
+
+# Create a table with gt
+top_ingredients_table <- top_ingredients %>%
+  gt()
+
+# Apply cell styling for background color based on values
+top_ingredients_table %>%
+  data_color(
+    columns = where(is.numeric),
+    colors = scales::col_numeric(palette = c("green", "red"))
+  )
+```
+
 ### Exercise 7
 
 How would you interpret the results of a PCA analysis for a client?
+
+```{r}
+boston_cocktails$measure_number <- as.numeric(boston_cocktails$measure_number)
+```
+
+```{r}
+# Load the required libraries
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(tidymodels)
+
+# Create a PCA recipe
+pca_recipe <- recipe(~ ., data = boston_cocktails) %>%
+  step_rm(name, category) %>%  # Remove name and category columns
+  step_normalize(all_predictors()) %>%  # Normalize predictors
+  step_pca(all_predictors(), num_comp = 2)  # Perform PCA with 2 components
+
+# Preprocess the data
+prepped_data <- prep(pca_recipe) %>%
+  juice()
+
+# Plot cocktails in PC1 and PC2 space
+ggplot(prepped_data, aes(PC1, PC2, label = name)) +
+  geom_point(aes(color = category), alpha = 0.7, size = 2) +
+  geom_text(check_overlap = TRUE, hjust = "inward") + 
+  labs(color = NULL)
+```
